@@ -1,0 +1,404 @@
+---
+title: "Identification of Severe Weather Events Most Harmful to Population Health and Economy"
+author: "Keh-Harng Feng"
+date: "February 19, 2017"
+output: 
+    html_document:
+        keep_md: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(cache = TRUE)
+```
+
+## Synopsis
+Data from the NOAA storm database is analyzed to identify the most harmful severe 
+weather events when it comes to population health and economy. Event type 
+identifiers from the original dataset is first extensively cleaned up using regular 
+expressions. Two indices, the casualty index and ecodamage index are then computed 
+to represent the overall harm from a specific type of weather event. COLD SNOW is 
+found to be the most dangerous weather event to population health while HURRICANE 
+is the most economically damaging.
+
+## Data Processing
+The data set used is a csv file prepared by Roger D. Peng using the U.S. National 
+Oceanic and Atmospheric Administration storm database.
+
+### Data Ingress
+
+The data is downloaded and load into R as a compressed csv file:
+```{r data_load}
+if (!file.exists('StormData.csv.bz2')) {
+    download.file('https://d396qusza40orc.cloudfront.net/repdata%2Fdata%2FStormData.csv.bz2', 
+                  destfile = 'StormData.csv.bz2')
+}
+
+if (!('data' %in% ls())) {
+    data <- read.csv('StormData.csv.bz2')
+}
+```
+
+### Event Type Clean-up
+
+A sample of unique storm event types from the data set is listed below
+```{r EVTYPES}
+head(sort(unique(data$EVTYPE)), 20)
+```
+
+Unfortunately the list contains MANY typographical errors. A method is 
+devised to identify and correct *some* of them automatically.
+
+An 'cleanup' function is written to first correct many of the common typos 
+and group together types that are considered similar. It then gets rid of numbers 
+and special characters or phrases like 'AND' in the event type (except for ones 
+that are in 'Summary'). It extracts "words" without spaces and other symbols 
+(plus the word 'AND') in an event type and convert them to upper cases. The cleaned 
+up event type is then regenerated using paste().
+```{r ev_correction}
+# Helper function to 
+# 1. Convert to upper case and correct typos.
+# 2. Fuzzy group categories.
+cleanup <- function(x) {
+    x <- toupper(x)
+    
+    # Typo/redundancy corrections
+    # A
+    x <- gsub('AVALANCE', 'AVALANCHE', x, fixed = TRUE)
+    x <- gsub(' ANDBLOWING', '', x, fixed = TRUE)
+    x <- gsub('ABNORMAL.* ', 'EXCESSIVE', x)
+    
+    # C
+    x <- gsub('CSTL', 'COASTAL', x, fixed = TRUE)
+    x <- gsub('CLOUDS', 'CLOUD', x, fixed = TRUE)
+    
+    # D
+    x <- gsub('DEVEL', 'DEVIL', x, fixed = TRUE)
+    x <- gsub(' DAMAGE.*', '', x)
+    
+    # E
+    x <- gsub('EROSIN', 'EROSION', x, fixed = TRUE)
+    x <- gsub('EXTREME', 'EXCESSIVE', x, fixed = TRUE)
+    x <- gsub('EXTENDED', 'EXCESSIVE', x, fixed = TRUE)
+    x <- gsub(' EFFECTS', '', x, fixed = TRUE)
+    
+    # F
+    x <- gsub('FIRES', 'FIRE', x, fixed = TRUE)
+    x <- gsub('FLOODS', 'FLOOD', x, fixed = TRUE)
+    x <- gsub('FLOODING', 'FLOOD', x, fixed = TRUE)
+    x <- gsub('FLD', 'FLOOD', x, fixed = TRUE)
+    x <- gsub('FLDG', 'FLOOD', x, fixed = TRUE)
+    x <- gsub('FUNNELS', 'FUNNEL', x, fixed = TRUE)
+    
+    # H
+    x <- gsub('HEAVY', 'EXCESSIVE', x, fixed = TRUE)
+    x <- gsub('HIGH', 'EXCESSIVE', x, fixed = TRUE)
+    x <- gsub('HVY ', '', x, fixed = TRUE)
+    
+    # L
+    x <- gsub('LIGHTING', 'LIGHTNING', x, fixed = TRUE)
+    x <- gsub('LIGNTNING', 'LIGHTNING', x, fixed = TRUE)
+    
+    # M
+    x <- gsub('MIRCO', 'MICRO', x, fixed = TRUE)
+    x <- gsub('MPH', '', x, fixed = TRUE)
+    x <- gsub('MISHAP', 'ACCIDENT', x, fixed = TRUE)
+    
+    # R
+    x <- gsub('RECORD', 'EXCESSIVE', x, fixed = TRUE)
+    
+    # S
+    x <- gsub('SEVERE', 'EXCESSIVE', x, fixed = TRUE)
+    x <- gsub('SPELL', '', x, fixed = TRUE)
+    x <- gsub('SML', 'SMALL', x, fixed = TRUE)
+    x <- gsub('STRM', 'STREAM', x, fixed = TRUE)
+    x <- gsub('STROM', 'STORM', x, fixed = TRUE)
+    x <- gsub('SORM', 'STORM', x, fixed = TRUE)
+    x <- gsub('STORMS', 'STORM', x, fixed = TRUE)
+    x <- gsub('STRONG', 'EXCESSIVE', x, fixed = TRUE)
+    x <- gsub(' SEAS[ $]', 'SEA', x)
+    
+    # T
+    x <- gsub('TEMPERATURES', 'TEMPERATURE', x, fixed = TRUE)
+    x <- gsub('TEMP$', 'TEMPERATURE', x)
+    x <- gsub('TIDES', 'TIDE', x, fixed = TRUE)
+    x <- gsub('TORNDAO', 'TORNADO', x, fixed = TRUE)
+    x <- gsub('TORNADO.*', 'TORNADO', x)
+    x <- gsub('TUNDERSTORM', 'THUNDERSTORM', x, fixed = TRUE)
+    x <- gsub('TORRENTIAL', 'EXCESSIVE', x, fixed = TRUE)
+    x <- gsub('THUNDERTORM', 'THUNDERSTORM', x, fixed = TRUE)
+    x <- gsub('THU.*STORM', 'THUNDERSTORM', x)
+    x <- gsub('.*TSTM.*', 'THUNDERSTORM', x)
+    
+    
+    
+    # U
+    x <- gsub('UNSEASON.* ', 'EXCESSIVE', x)
+    x <- gsub('UNUS.* ', 'EXCESSIVE', x)
+    
+    # V
+    x <- gsub('VOG', 'FOG', x, fixed = TRUE)
+    x <- gsub('VERY', 'EXCESSIVE', x, fixed = TRUE)
+    
+    # W
+    x <- gsub('WINDS', 'WIND', x, fixed = TRUE)
+    x <- gsub('WINDCHILL', 'WIND CHILL', x, fixed = TRUE)
+    x <- gsub('WND', 'WIND', x, fixed = TRUE)
+    x <- gsub('WAYTER', 'WATER', x, fixed = TRUE)
+    x <- gsub('WATER.*SPOUT.*', 'WATERSPOUT', x)
+    
+    # Category Collapse
+    # High Priority: the following are processed first (therefore most likely 
+    # will override other checks)
+    x <- gsub('.*BLIZZARD.*', 'BLIZZARD', x)
+    x <- gsub('^BLOWING SNOW.*', 'EXCESSIVE SNOW', x)
+    x <- gsub('.*FOG.*', 'FOG', x)
+    x <- gsub('.*FLOOD.*', 'FLOOD', x)
+    x <- gsub('.*THUNDERSTORM.*', 'THUNDERSTORM', x)
+    x <- gsub('EXCESSIVE SNOW.*', 'EXCESSIVE SNOW', x)
+    x <- gsub('LIGHTNING.*', 'LIGHTNING', x)
+    x <- gsub('^EXCESSIVE.*SEA', 'ROUGH SEA', x)
+    x <- gsub('^EXCESSIVE.*HEAT.*', 'EXCESSIVE HEAT', x)
+    
+    # Normal priority
+    x <- gsub('ACCUMULATED SNOWFALL', 'EXCESSIVE SNOW', x, fixed = TRUE)
+    
+    x <- gsub('^BEACH EROSION.*', 'BEACH EROSION', x)
+    x <- gsub('^BITTER WIND CHILL.*', 'WIND CHILL', x)
+    
+    
+    
+    x <- gsub('^COASTAL.*(FLOOD|SURGE).*', 'COASTAL FLOOD', x)
+    x <- gsub('COLD WEATHER', 'EXCESSIVE COLD', x, fixed = TRUE)
+    x <- gsub('^COLD WIND.*', 'EXCESSIVE COLD', x)
+    x <- gsub('^COLD$', 'EXCESSIVE COLD', x, fixed = TRUE)
+    
+    
+    x <- gsub('DAM BREAK', 'DAM FAILURE', x, fixed = TRUE)
+    x <- gsub('DAMAGING FREEZE', 'COLD TEMPERATURE', x, fixed = TRUE)
+    x <- gsub('.*DOWNBURST.*', 'DOWNBURST', x)
+    x <- gsub('^DRY.*', 'DRY', x)
+    x <- gsub('DRIEST MONTH', 'DROUGHT', x, fixed = TRUE)
+    x <- gsub('^DROUGHT.*', 'DROUGHT', x)
+    x <- gsub('^DUST DEVIL.*', 'DUST DEVIL', x)
+    
+    x <- gsub('^EROSION COASTAL.*', 'COASTAL FLOOD EROSION', x)
+    x <- gsub('.*EXCESSIVE.*RAIN.*', 'EXCESSIVE RAIN', x)
+    x <- gsub('.*WIND.*CHILL.*', 'EXCESSIVE WIND CHILL', x)
+    
+    x <- gsub('.*HAIL.*', 'HAIL', x)
+    x <- gsub('^HURRICANE.*', 'HURRICANE', x)
+    x <- gsub('HEAT DROUGHT', 'DROUGHT', x, fixed = TRUE)
+    x <- gsub('^HEAT.*DROUGHT', 'DROUGHT', x)
+    x <- gsub('^HEAT .*', 'HEAT', x)
+    
+    if (grepl('.*ICE STORM.*', x)) {
+        x <- 'ICE STORM'
+    } else if(grepl('(ICE|ICY)', x)) {
+        x <- 'EXCESSIVE ICE'
+    }
+    
+    x <- gsub('LIGHT SNOW.*', 'LIGHT SNOW', x)
+    
+    
+    x <- gsub('MICROBURST.*', 'MICROBURST', x)
+    x <- gsub('MUD.*SLIDE.*', 'MUDSLIDE', x)
+    
+    x <- gsub('^FROST.*', 'FROST', x)
+    x <- gsub('FUNNEL CLOUD HAIL', 'HAIL', x, fixed = TRUE)
+    
+    x <- gsub('^GLAZE.*', 'GLAZE', x)
+
+    x <- gsub('GROUND BLIZZARD', 'BLIZZARD', x, fixed = TRUE)
+    x <- gsub('^GUSTNADO.*', 'GUSTNADO', x)
+    x <- gsub('^GUSTY.*', 'GUSTY WIND', x)
+    
+    x <- gsub('^RAIN FLOODING', 'FLOOD', x)
+    x <- gsub('^RAIN.*', 'RAIN', x)
+    x <- gsub('RAIN', 'EXCESSIVE RAIN', x)
+    
+    x <- gsub('^STORM .*', 'STORM', x)
+    x <- gsub('^SNOW .*', 'SNOW', x)
+    x <- gsub('^SNOWCOLD', 'SNOW', x)
+    
+    x <- gsub('^TROPICAL STORM.*', 'TROPICAL STORM', x)
+    x <- gsub('TYPHOON', 'TROPICAL STORM', x, fixed = TRUE)
+    
+    x <- gsub('^URBAN SMALL STREAM.*', 'FLOOD', x)
+    
+    x <- gsub('VOLANIC ASH.*', 'VOLCANIC ASH', x)
+    
+    x <- gsub('WATERSPROUT.*', 'WATERSPROUT', x)
+    x <- gsub('^WILD.*FIRE.*', 'WILDFIRE', x)
+    x <- gsub('WINTER STORM.*', 'WINTER STORM', x)
+    x <- gsub('WINTER WEATHER.*', 'WINTER WEATHER', x)
+    
+    # Only carry out number eradication on events that are not "Summary"
+    if (!grepl('^SUMMARY', x)) {
+        x <- gsub('[0-9\\.]', '', x)
+    }
+    
+    x <- gsub('AND', '&', x)
+    vec <- strsplit(x, '[ &/\\(\\)]')[[1]]
+    x <- paste(vec[sapply(vec, nchar) > 0], collapse = ' ')
+    
+}
+
+new_data <- data
+new_data$EVTYPE <- sapply(new_data$EVTYPE, FUN = cleanup)
+```
+
+The event types with automatic cleanup are listed below:
+```{r cleanup_ev}
+print(unique(sort(new_data$EVTYPE)), quote = TRUE)
+```
+
+### Property Damage Representation
+
+The property damage caused by the severe weather event is represented by both 
+numerical values in the 'PROPDMG' variable and a descriptive magnitude unit in 
+'PROPDMGEXP' variable. The valid descriptors are K for thousand dollars, M for 
+million dollars, B for billion dollars or a number between 0 to 1 for the numerical 
+exponent. The following code combines these two variables into one single numerical 
+variable 'PROPLOSS' that represents the amount of dollars lost from property damage.
+```{R proploss}
+scale <- function(x){
+    x <- toupper(x)
+    if (x %in% c('K', 'M', 'B', '1', '2', '3', '4', '5', '6', '7', '8', '9')){
+        if (x == 'K') {
+            return(1000)
+        } else if (x == 'M') {
+            return(1e6)
+        } else if (x == 'B') {
+            return(1e9)
+        } else {
+            return(1*10^(as.numeric(x)))
+        }
+    } else {
+        return(0)
+    }
+}
+
+PROPLOSS <- new_data$PROPDMG*sapply(new_data$PROPDMGEXP, FUN = scale)
+```
+
+A similar process is carried out to combine 'CROPDMG' and 'CROPDMGEXP' into a 
+single variable 'CROPLOSS' that represents the amount of dollars lost from crop 
+damage.
+```{R croploss}
+CROPLOSS <- new_data$CROPDMG*sapply(new_data$CROPDMGEXP, FUN = scale)
+
+new_data <- cbind(new_data[, !(names(new_data) %in% c('CROPDMG', 'CROPDMGEXP', 
+                                                    'PROPDMG', 'PROPDMGEXP'))],
+                  PROPLOSS, CROPLOSS)
+```
+## Result
+
+### Most Harmful Event to Health
+
+The most harmful event to personal health is identified by the use of 
+**casualty index**. The casualty index (CI) is calculated by doing a weighted sum 
+of the averages of the number of injuries and the number of fatalities per 
+occurrence of event grouped by severe weather event types stored in the 'EVTYPE' 
+variable. 
+
+It is important to compute the casualty index as a weighted sum of averages as 
+opposed to just a weighted sum because 
+
+1. A sum will skewer results towards years where the number of recorded 
+observations are high.
+
+2. A sum will also skewer results towards event types that happen more frequently.
+
+The weighting assigned for injuries:fatalities is one to two, meaning a fatality 
+carries twice as much impact compared to an injury. The code to compute CI is 
+included here:
+```{r CI}
+avg <- aggregate(new_data[c('INJURIES', 'FATALITIES')], by = list(new_data$EVTYPE),
+                 FUN = mean, na.rm = TRUE)
+
+CI <- cbind(avg[1], avg[2] + avg[3]*2)
+
+names(CI) <- c('EVTYPE', 'CASUALTY_INDEX')
+
+```
+
+A plot of the top 20 events by casualty index is shown below.
+```{r CI_plot}
+
+perm <- order(CI$CASUALTY_INDEX, decreasing = TRUE)
+CI <- CI[perm,]
+CI$EVTYPE <- factor(CI$EVTYPE, levels = CI$EVTYPE[perm])
+
+library('ggplot2')
+
+ggplot(CI[1:20,], aes(x = EVTYPE[1:20], y = CASUALTY_INDEX[1:20])) + 
+    geom_bar(stat = 'identity') +
+    xlab('Weather Event') +
+    ylab('Casualty Index') +
+    ggtitle('Top 20 Most Harmful Severe Weather Events') +
+    theme(axis.text.x = element_text(angle = 90, hjust = 1), 
+          plot.title = element_text(hjust = 0.5))
+
+```
+
+From the bar plot it is clear that **COLD SNOW** is the most harmful severe 
+weather event when it comes to personal safety.
+
+### Most Economically Damaging
+
+The most economically damaging event is identified by the use of the **ecodamage 
+index**, EI. This is just a straight sum of the average amount of monetary loss 
+from both property loss and crop loss per severe weather event separated by 
+event type. Note that the sum is not weighted, hence both property loss and crop 
+loss are considered to have equal economical impact.
+
+```{R ecodmg_index}
+avg <- aggregate(new_data[c('PROPLOSS', 'CROPLOSS')], by = list(new_data$EVTYPE),
+                 FUN = mean, na.rm = TRUE)
+
+EI <- cbind(avg[1], avg[2] + avg[3])
+names(EI) <- c('EVTYPE', 'ECODMG_INDEX')
+```
+
+A plot of the top 20 most economically damaging severe weather events is shown 
+below.
+
+```{r EI_plot}
+
+perm <- order(EI$ECODMG_INDEX, decreasing = TRUE)
+EI <- EI[perm,]
+EI$EVTYPE <- factor(EI$EVTYPE, levels = EI$EVTYPE[perm])
+
+library('ggplot2')
+
+ggplot(EI[1:20,], aes(x = EVTYPE[1:20], y = ECODMG_INDEX[1:20])) + 
+    geom_bar(stat = 'identity') +
+    xlab('Weather Event') +
+    ylab('Ecodamage Index') +
+    ggtitle('Top 20 Most Economically Damaging Severe Weather Events') +
+    theme(axis.text.x = element_text(angle = 90, hjust = 1), 
+          plot.title = element_text(hjust = 0.5))
+
+```
+
+From the plot it seems **HURRICANE** is by far the most economically damaging 
+severe weather event in the U.S..
+
+## Discussion & Future Work
+
+- Event type clean-up is not perfect. Only barely tolerable.
+
+- While the rampant typos and lack of standard representations in the EVTYPE 
+variable from the original data necessitates the extensive modifications to the 
+event type descriptors, the changes made can be thought of as arbitrary and 
+lacking systematic underlying guidelines. Since subsequent analysis uses grouping 
+by event types it is crucial to have a logical and standard way of approaching 
+EVTYPE corrections. However it may be impossible without further consultations 
+with NOAA.
+
+- Although this author believes the choice of weighting (or lack thereof) when it 
+comes to the computations of the casualty index and ecodamage index is *reasonable*, 
+it is based on simple gut feelings with no scientific research to justify such 
+choices. There may very well be better algorithms already developed to represent 
+overrall harmfulness or economic damage based on the data provided.
